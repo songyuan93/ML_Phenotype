@@ -1,0 +1,388 @@
+---
+title: "Project_Ensemble"
+author: "Camila, Yao, Wang"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(earth)
+library(ggplot2)
+library(ggbiplot)
+library(ModelMetrics)
+library(caret)
+library(knitr)
+library(naniar)
+library(dplyr)
+library(kableExtra)
+library(randomForest)
+library(pROC)
+library(devtools)
+library(pheatmap)
+library(gridExtra)
+library(grid)
+library(cowplot)
+```
+
+#loading data
+```{r}
+library(data.table)
+df <- read.csv("ms_alignment_2.csv", na.strings=c(""," ","NA"))
+head(df)
+df$HCT_1.1 <- NULL
+df$HCT_1.62 <- NULL
+
+rownames(df) <- df$Type
+df <- df[ , -1]
+df <- t(df)
+df <- as.data.frame(df)
+df
+
+data <- df[,colSums(is.na(df)/nrow(df)) < 0.5]
+head(data)
+str(data)
+data[is.na(data)] <- 0
+``` 
+
+```{r}
+load_data <- function(percentage){
+  df <- read.csv("ms_alignment_2.csv", na.strings=c(""," ","NA"))
+  head(df)
+  df$HCT_1.1 <- NULL
+  df$HCT_1.62 <- NULL
+  
+  rownames(df) <- df$Type
+  df <- df[ , -1]
+  df <- t(df)
+  df <- as.data.frame(df)
+  df
+  
+  data <- df[,colSums(is.na(df)/nrow(df)) < percentage]
+  head(data)
+  
+  data[is.na(data)] <- 0
+  return (data)
+}
+
+```
+
+#data visulization
+```{r}
+# data <- df[,colSums(is.na(df)/nrow(df)) < 0.5]
+
+new_data <- data[colMeans(data) < 500]
+a <- colMeans(new_data)
+
+apply(new_data,2,max)
+mean(a)
+sd(a)
+paletteLength <- 50
+
+# par(mfrow=c(1,2))
+breaks <- quantile(as.numeric(unlist(new_data)), probs = seq(0, 1, length.out = 100))
+breaks <-breaks[!duplicated(breaks)]
+length(breaks)
+
+numeric_data <- as.matrix(new_data)
+class(numberic_data)
+par(pty="s")
+my_colors <- colorRampPalette(c("cyan", "deeppink3"))   
+heat <- pheatmap(numeric_data,cluster_rows = F, cluster_cols = F, 
+         show_rownames = F, show_colnames = F, scale = 'column',
+         breaks = seq(-10,5,0.15),
+         legend_labels = c("Low", "High"), legend_breaks = c(-10,5),
+         col=my_colors(100),
+         # breaks=breaks,
+         cellwidth=1.5,cellheight = 1.5, main="Manipulated Dataset")
+dev.off()
+png(filename = "density.png",width=600,height=350,res=300)
+den <- density(as.numeric(unlist(new_data)))
+par(pty='s')
+histogram <- hist(breaks[1:70], frame=FALSE, col="darkred",main="Density plot",
+     xlab="Signal Density", ylab=NA, breaks = 10,wideth=1,height=10,
+     ylim = c(0,80))
+dev.off()
+# heatmap.3(as.matrix(data),Rowv = NA, Colv = NA,col=my_colors(100),key=TRUE)
+```
+
+
+#PCR
+```{r}
+library(plotly)
+library(ggfortify)
+library(cluster)
+data
+pc <- prcomp(new_data,
+             scale. = T,
+             center = T)
+summary(pc)
+ggbiplot(pc)
+autoplot(pc,frame=TRUE,frame.type="norm")
+
+
+
+type
+
+rownames(data) =="HCT_t"
+sustr(rownames(data),1,5) == "HCT_t"
+
+data$cell_type
+
+iris$Species
+
+length(data)
+autoplot(pc,
+         data=data[1:190],
+         colour='cell_type',frame=T,frame.type = 'norm',
+         size=3)
+
+ggsave("pca.png",dpi=300)
+# autoplot(pc,frame=TRUE,frame.type="norm")
+```
+
+
+#split data
+```{r}
+data$cellType <- NULL
+for (x in 1:length(data)) {
+  row <- rownames(data[x,])
+  if (substr(row,1,5) == "HCT_t") {
+    data$cellType[x]<- "treated"
+  }
+  else {
+    data$cellType[x] <- "untreated"
+  }
+}
+
+set.seed(1234)
+indexRow <- sample(1:3,size=nrow(data),replace=TRUE,prob=c(0.33,0.33,0.33))
+ensembleData <- data[indexRow==1,]
+blenderData <- data[indexRow==2,]
+testingData <- data[indexRow==3,]
+```
+
+
+#models
+```{r}
+metric <- "Accuracy"
+control <- trainControl(method="cv", number=10,repeats=1)
+
+# ensembleData = factor(ensembleData)
+ensembleData$cellType
+#random forest
+fit.rf <- train(cellType ~., data = ensembleData, method='rf', trControl= control,
+                metric = metric)
+
+#neural network
+fit.nn <- train(cellType ~.,data= ensembleData, method= 'nnet',  trControl= control,
+                metric=metric)
+
+#kNN
+fit.knn <- train(cellType ~.,data= ensembleData, method= 'knn',  trControl= control,
+                metric=metric)
+#SVM
+svmControl <- trainControl(method="cv", number=10,classProbs = TRUE)
+fit.svm <- train(cellType ~.,data= ensembleData, method= 'svmRadial',  trControl= svmControl,
+                metric=metric)
+#lda
+fit.lda <- train(cellType ~.,data= ensembleData, method= 'lda',  trControl= control,
+                metric=metric)
+
+#Bragged Tree
+fit.bt <- train(cellType ~.,data= ensembleData, method= 'treebag',  trControl= control,
+                metric=metric)
+
+
+```
+
+```{r}
+par(pty="s")
+color_list <- c("ivory4","cadetblue","chocolate","mediumseagreen","red4","salmon")
+kappa_list <- c("cadetblue","chocolate","ivory4","salmon","mediumseagreen","red4")
+m_list <- c("rf","nn","knn","svm","lda","bt")
+model_list <- list(rf = fit.rf, nn = fit.nn, knn= fit.knn, svm= fit.svm,  lda = fit.lda,   BT = fit.bt)
+ resamples <- resamples(model_list)
+ bwplot(resamples, metric="Accuracy")
+ png("model_kappa.png")
+ bwplot(resamples,metric="Kappa",col='darkslategrey',cex.sub=10,
+        scales = list(y = list(cex = 3),x = list(cex = 3)),
+        # key=list(space="left",column=1,text=list(label=m_list,col="darkgrey")
+        #          # rectangles=list(col=color_list,rectangles=color_list,size=3)
+        #          ),
+        par.settings=list(box.rectangle=list(col="black",fill=kappa_list),box.umbrella=list(col="black")))
+ dev.off()
+```
+
+
+#ensemble model
+```{r}
+predict(object=fit.svm,blenderData)
+blenderData$svm_PROB <- predict(object=fit.svm,blenderData)
+blenderData$rf_PROB <- predict(object=fit.rf,blenderData)
+blenderData$bt_PROB <- predict(object=fit.bt,blenderData)
+
+newTestingData <- testingData
+newTestingData$svm_PROB <- predict(object=fit.svm,testingData)
+newTestingData$rf_PROB <- predict(object=fit.rf,testingData)
+newTestingData$bt_PROB <- predict(object=fit.bt,testingData)
+
+final_blender_model <- train(cellType ~.,data= blenderData, method= 'svmRadial',  trControl= svmControl, metric=metric)
+final_blender_model
+preds <- predict(object=final_blender_model,newTestingData,"prob")
+preds[,1]
+fit.svm
+par(pty="s")
+blender_roc  <- roc(newTestingData$cellType, as.numeric(preds[,1]),plot=TRUE,percent=TRUE,lwd=2,col="ivory4")
+
+```
+
+```{r}
+library(ROCR)
+library(pROC)
+library(glue)
+rf_pred  <- predict(fit.rf,test_data,'prob')
+svm_pred <- predict(fit.svm,test_data,'prob')
+bt_pred  <- predict(fit.bt,test_data,'prob')
+
+png("ensemble_roc.png")
+par(pty="s",cex.axis=2,cex.lab=2)
+# blender_roc  <- roc(newTestingData$cellType, as.numeric(preds[,1]),plot=TRUE,percent=TRUE,lwd=2,col="coral4")
+rf_roc  <- roc(test_data$cell_type, as.numeric(rf_pred[,1]),plot=TRUE,percent=TRUE,lwd=2,col="ivory4")
+svm_roc <- roc(test_data$cell_type,as.numeric(svm_pred[,1]),plot=TRUE,percent=TRUE,lwd=2,add=T,col="mediumseagreen")
+bt_roc  <- roc(test_data$cell_type,as.numeric(bt_pred[,1]),plot=TRUE,percent=TRUE,lwd=2,add=T,col="salmon")
+blender_roc  <- roc(newTestingData$cellType, as.numeric(preds[,1]),plot=TRUE,percent=TRUE,add=T,lwd=2,col="coral4")
+
+blender_auc <- round(pROC::auc(blender_roc),2)
+blender_legend <- glue("Ensemble ({blender_auc}%)")
+rf_auc <- round(pROC::auc(rf_roc),2)
+rf_legend <- glue("Random forest ({rf_auc}%)")
+svm_auc <- round(pROC::auc(svm_roc),2)
+svm_legend <- glue("SVM ({svm_auc}%)")
+bt_auc <- round(pROC::auc(bt_roc),2)
+bt_legend <-glue("Bagging tree ({bt_auc}%)")
+
+
+legend("bottomright",
+       c(blender_legend,rf_legend,svm_legend,bt_legend),
+       col=c("coral4","ivory4","mediumseagreen","salmon"),
+       lwd=4, cex =1.7, xpd = TRUE)
+dev.off()
+```
+```{r}
+par(pty="s")
+color_list <- c("yellow","red","green","blue")
+color_list <- rev(c("coral4","mediumseagreen","ivory4","salmon"))
+# kappa_list <- c("ivory4","mediumseagreen" ,"salmon","coral4")
+m_list <- c("rf","svm","bt","em")
+
+model_list <- list(rf = fit.rf, svm= fit.svm,  BT = fit.bt,EM = final_blender_model)
+ resamples <- resamples(model_list)
+ # bwplot(resamples, metric="Accuracy")
+ png("ensemble_accuracy.png")
+ bwplot(resamples,metric="Accuracy",col='darkslategrey',cex.sub=7,
+        scales = list(y = list(cex = 2),x = list(cex = 2)),
+        # key=list(space="left",column=1,text=list(label=m_list,col="darkgrey"),
+        #          rectangles=list(col=color_list,rectangles=color_list,size=3)
+        #          ),
+        par.settings=list(box.rectangle=list(col="black",fill=color_list),box.umbrella=list(col="black")))
+ dev.off()
+```
+
+
+
+#AUROC 
+```{r}
+#loading data
+library(ROCR)
+
+rf_pred  <- predict(fit.rf,test_data,'prob')
+nn_pred  <- predict(fit.nn,test_data,'prob')
+knn_pred <- predict(fit.knn,test_data,'prob')
+svm_pred <- predict(fit.svm,test_data,'prob')
+lda_pred <- predict(fit.lda,test_data,'prob')
+bt_pred  <- predict(fit.bt,test_data,'prob')
+
+library(glue)
+par(pty="s")
+rf_roc  <- roc(test_data$cell_type, as.numeric(rf_pred[,1]),plot=TRUE,percent=TRUE,lwd=2,col="ivory4")
+nn_roc  <- roc(test_data$cell_type,as.numeric(nn_pred[,1]),plot=TRUE,percent=TRUE,lwd=2,add=T,col="cadetblue")
+knn_roc <- roc(test_data$cell_type,as.numeric(knn_pred[,1]),plot=TRUE,percent=TRUE,lwd=2,add=T,col="chocolate")
+svm_roc <- roc(test_data$cell_type,as.numeric(svm_pred[,1]),plot=TRUE,percent=TRUE,lwd=2,add=T,col="mediumseagreen")
+lda_roc <- roc(test_data$cell_type,as.numeric(lda_pred[,1]),plot=TRUE,percent=TRUE,lwd=2,add=T,col="red4")
+bt_roc  <- roc(test_data$cell_type,as.numeric(bt_pred[,1]),plot=TRUE,percent=TRUE,lwd=2,add=T,col="salmon")
+
+rf_auc <- round(auc(rf_roc),2)
+rf_legend <- glue("Random forest ({rf_auc}%)")
+nn_auc <- round(auc(nn_roc),2)
+nn_legend <- glue("Neural Network ({nn_auc}%)")
+knn_auc <- round(auc(knn_roc),2)
+knn_legend <- glue("k-NN ({knn_auc}%)")
+svm_auc <- round(auc(svm_roc),2)
+svm_legend <- glue("SVM ({svm_auc}%)")
+lda_auc <- round(auc(lda_roc),2)
+lda_legend<-glue("LDA ({lda_auc}%)")
+bt_auc <- round(auc(bt_roc),2)
+bt_legend <-glue("Bagging tree ({bt_auc}%)")
+
+
+legend("bottomright",
+       c(rf_legend,nn_legend,knn_legend,
+         svm_legend,lda_legend,bt_legend),
+       col=c("ivory4","cadetblue","chocolate","mediumseagreen","red4","salmon"),
+       lwd=4, cex =1, xpd = TRUE)
+
+
+```
+
+#TPR and FPR
+```{r}
+pp <- function(roc) {
+  df <- data.frame(tpp=roc$specificities,
+                  fpp=(100-roc$sensitivities),
+                  thresholds = roc$thresholds)
+  return (df)
+}
+
+getTPR <- function(roc,threshold=95) {
+  index = which.min(abs(roc$specificities-threshold))
+  TPR = roc$sensitivities[index]
+  return(TPR)
+}
+
+getFPR <- function(roc,threshold=95) {
+  index = which.min(abs(roc$specificities-threshold))
+  FPR = 100 - roc$specificities[index]
+  return (FPR)
+}
+
+TPR <- c(getTPR(rf_roc),getTPR(nn_roc),getTPR(knn_roc),getTPR(svm_roc)+0.5,getTPR(lda_roc),getTPR(bt_roc))
+
+FPR <- c(getFPR(rf_roc),getFPR(nn_roc),getFPR(knn_roc),getFPR(svm_roc)+0.1,getFPR(lda_roc),getFPR(bt_roc))
+
+dot <- data.frame(tpr=TPR,fpr=FPR)
+rownames(dot) <- c("Random Forest",
+                   "Neural Network",
+                   "k-NN",
+                   "SVM",
+                   "LDA",
+                   "Bragg Tree")
+colnames(dot)
+# dot_color <- c("ivory4","cadetblue","chocolate","mediumseagreen","red4","salmon")
+dot_color <- c("salmon","chocolate","red4","cadetblue","ivory4","mediumseagreen")
+
+
+ggplot(data= dot, mapping = aes(x=TPR,y=FPR,fill=rownames(dot))) +
+        geom_point(size=8,shape=21) +
+        
+        labs(x="TPR (%)", y="FPR (%)") +
+        scale_fill_manual(values=dot_color, name="Model") +
+        theme_bw() +
+        theme(text=element_text(size=25,  family="Arial"),aspect.ratio=1,
+              legend.text=element_text(size=15),legend.position = "left")
+ggsave("TPR_FPR.png",dpi=300)
+dev.off()
+        
+
+```
+
