@@ -1,2 +1,3 @@
 Recent studies have applied single cell mass spectrometry coupled with machine learning classification method to predict the phenotype of individual drug resistant cells. However, these works have focused on the use of random forest and artificial neural network models. To improve these models and achieve accurate prediction, this paper presents an ensemble learning model that combines high-accuracy models such as random forest and support vector machine in order to attain a 10 percent accuracy improvement. This ensemble model has the potential to improve the performance of machine learning models developed for single-cell phenotype prediction by its availability as an easy-to-use R package.
-![Uploading Fig1.png…]()
+
+![Alt text]([image link](https://github.com/songyuan93/ML_Phenotype/blob/main/Figures/Fig1.png)https://github.com/songyuan93/ML_Phenotype/blob/main/Figures/Fig1.png)
